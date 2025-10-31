@@ -4,7 +4,6 @@
 
   // 在保存时格式化
   "editor.formatOnSave": true,
-
   // 保存时进行一些操作
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit",
@@ -22,7 +21,6 @@
   "path-autocomplete.pathMappings": {
     "@": "${folder}/src"
   },
-
   // 别名路径跳转,这个插件可以完善vscode的跳转
   "alias-skip.allowedsuffix": [
     "css",

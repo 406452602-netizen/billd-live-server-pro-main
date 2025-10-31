@@ -24,7 +24,7 @@ import thirdUserService from '@/service/thirdUser.service';
 import userService from '@/service/user.service';
 import walletService from '@/service/wallet.service';
 import { IUser } from '@/types/IUser';
-import { strSlice } from '@/utils';
+import { strSlice, validateUsername } from '@/utils';
 import { RedisLock } from '@/utils/redisLock';
 
 class UserController {
@@ -43,16 +43,27 @@ class UserController {
     const password = data.password?.trim();
     const { user_roles } = data;
 
-    if (!username || !password) {
+    // 先进行不需要访问数据库的基础校验
+    if (!username) {
       throw new CustomError({
-        msg: `用户名或密码为空！`,
+        msg: `用户名为空！`,
         httpStatusCode: COMMON_HTTP_CODE.paramsError,
         errorCode: COMMON_HTTP_CODE.paramsError,
       });
     }
-    if (username.length < 3 || username.length > 12) {
+    if (!password) {
       throw new CustomError({
-        msg: `用户名长度要求3-12位！`,
+        msg: `密码为空！`,
+        httpStatusCode: COMMON_HTTP_CODE.paramsError,
+        errorCode: COMMON_HTTP_CODE.paramsError,
+      });
+    }
+
+    // 使用统一的用户名校验函数
+    const usernameValidation = validateUsername(username!);
+    if (!usernameValidation.valid) {
+      throw new CustomError({
+        msg: usernameValidation.message,
         httpStatusCode: COMMON_HTTP_CODE.paramsError,
         errorCode: COMMON_HTTP_CODE.paramsError,
       });
@@ -64,7 +75,9 @@ class UserController {
         errorCode: COMMON_HTTP_CODE.paramsError,
       });
     }
-    const isExistSameName = await userService.isSameName(username);
+    
+    // 再进行需要访问数据库的校验
+    const isExistSameName = await userService.isSameName(username!);
     if (isExistSameName) {
       throw new CustomError({
         msg: `已存在用户名为${username}的用户！`,
@@ -498,7 +511,7 @@ class UserController {
       {
         id,
         orderBy,
-        parent_user_id: parent_id,
+        parent_id,
         is_admin,
         orderName,
         nowPage,

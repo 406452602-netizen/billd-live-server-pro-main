@@ -98,6 +98,37 @@ export function handleKeyWord({
   return undefined;
 }
 
+/**
+ * 验证用户名格式
+ * 用户名规则：
+ * 1. 长度3-12位
+ * 2. 只能包含字母、数字、下划线
+ * 3. 不能以数字开头
+ * @param username 用户名
+ * @returns 验证结果对象 {valid: boolean, message?: string}
+ */
+export function validateUsername(username: string): {valid: boolean; message?: string} {
+  // 检查是否为空
+  if (!username || typeof username !== 'string') {
+    return { valid: false, message: '用户名不能为空' };
+  }
+  
+  const trimmedUsername = username.trim();
+  
+  // 检查长度
+  if (trimmedUsername.length < 3 || trimmedUsername.length > 12) {
+    return { valid: false, message: '用户名长度要求3-12位' };
+  }
+  
+  // 检查格式（只能包含字母、数字、下划线，且不能以数字开头）
+  const usernameRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  if (!usernameRegex.test(trimmedUsername)) {
+    return { valid: false, message: '用户名只能包含字母、数字、下划线，且不能以数字开头' };
+  }
+  
+  return { valid: true };
+}
+
 export function handleRangTime({
   rangTimeType,
   rangTimeStart,

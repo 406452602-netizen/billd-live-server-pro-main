@@ -19,7 +19,7 @@ import thirdUserService from '@/service/thirdUser.service';
 import userService from '@/service/user.service';
 import walletService from '@/service/wallet.service';
 import { IUser } from '@/types/IUser';
-import { generateUniqueInviteCode, strSlice } from '@/utils';
+import { generateUniqueInviteCode, strSlice, validateUsername } from '@/utils';
 import { getAncestors } from '@/utils/permissionUtils';
 import { RedisLock } from '@/utils/redisLock';
 
@@ -125,7 +125,47 @@ class InviteAgentController {
     const data = ctx.request.body;
     const { inviteCode, username, password, is_client } = data;
 
-    // 先进行基本参数校验
+    // 先进行不需要访问数据库的基础校验
+    if (!username) {
+      throw new CustomError({
+        msg: `用户名为空！`,
+        httpStatusCode: COMMON_HTTP_CODE.paramsError,
+        errorCode: COMMON_HTTP_CODE.paramsError,
+      });
+    }
+    if (!password) {
+      throw new CustomError({
+        msg: `密码为空！`,
+        httpStatusCode: COMMON_HTTP_CODE.paramsError,
+        errorCode: COMMON_HTTP_CODE.paramsError,
+      });
+    }
+    if (!inviteCode) {
+      throw new CustomError({
+        msg: `邀请码为空！`,
+        httpStatusCode: COMMON_HTTP_CODE.paramsError,
+        errorCode: COMMON_HTTP_CODE.paramsError,
+      });
+    }
+    
+    // 使用统一的用户名校验函数
+    const usernameValidation = validateUsername(username);
+    if (!usernameValidation.valid) {
+      throw new CustomError({
+        msg: usernameValidation.message,
+        httpStatusCode: COMMON_HTTP_CODE.paramsError,
+        errorCode: COMMON_HTTP_CODE.paramsError,
+      });
+    }
+    if (password.length < 6 || password.length > 18) {
+      throw new CustomError({
+        msg: `密码长度要求6-18位！`,
+        httpStatusCode: COMMON_HTTP_CODE.paramsError,
+        errorCode: COMMON_HTTP_CODE.paramsError,
+      });
+    }
+    
+    // 再进行需要访问数据库的校验
     const inviteAgent = await inviteAgentService.find(inviteCode);
     if (!inviteAgent) {
       throw new CustomError({
@@ -141,31 +181,6 @@ class InviteAgentController {
     ) {
       throw new CustomError({
         msg: `邀请码平台不正确，请选择${is_client ? '管理端' : '客户端'}注册！`,
-        httpStatusCode: COMMON_HTTP_CODE.paramsError,
-        errorCode: COMMON_HTTP_CODE.paramsError,
-      });
-    }
-    if (!username || !password) {
-      throw new CustomError({
-        msg: `用户名或密码为空！`,
-        httpStatusCode: COMMON_HTTP_CODE.paramsError,
-        errorCode: COMMON_HTTP_CODE.paramsError,
-      });
-    }
-    if (
-      username.length < 3 ||
-      username.length > 11 ||
-      typeof username !== 'string'
-    ) {
-      throw new CustomError({
-        msg: `用户名长度要求3-11位！`,
-        httpStatusCode: COMMON_HTTP_CODE.paramsError,
-        errorCode: COMMON_HTTP_CODE.paramsError,
-      });
-    }
-    if (password.length < 6 || password.length > 18) {
-      throw new CustomError({
-        msg: `密码长度要求6-18位！`,
         httpStatusCode: COMMON_HTTP_CODE.paramsError,
         errorCode: COMMON_HTTP_CODE.paramsError,
       });

@@ -71,7 +71,7 @@ class UserService {
       nowPage,
       pageSize,
       keyWord,
-      parent_user_id,
+      parent_id,
       rangTimeType,
       rangTimeStart,
       rangTimeEnd,
@@ -84,7 +84,7 @@ class UserService {
     });
     const allWhere: any = deleteUseLessObjectKey({
       id,
-      parent_user_id,
+      parent_id,
       is_admin,
     });
     const keyWordWhere = handleKeyWord({
