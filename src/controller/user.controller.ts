@@ -60,7 +60,7 @@ class UserController {
     }
 
     // 使用统一的用户名校验函数
-    const usernameValidation = validateUsername(username!);
+    const usernameValidation = validateUsername(username);
     if (!usernameValidation.valid) {
       throw new CustomError({
         msg: usernameValidation.message,
@@ -75,9 +75,9 @@ class UserController {
         errorCode: COMMON_HTTP_CODE.paramsError,
       });
     }
-    
+
     // 再进行需要访问数据库的校验
-    const isExistSameName = await userService.isSameName(username!);
+    const isExistSameName = await userService.isSameName(username);
     if (isExistSameName) {
       throw new CustomError({
         msg: `已存在用户名为${username}的用户！`,

@@ -62,6 +62,8 @@ class GameConsumptionRecordService {
     game_order,
     game_id,
     orderBy,
+    game_ids,
+    user_id,
     orderName,
     nowPage,
     pageSize,
@@ -77,7 +79,13 @@ class GameConsumptionRecordService {
     const allWhere: any = deleteUseLessObjectKey({
       game_order,
       game_id,
+      user_id,
     });
+
+    // 如果game_ids有值，则添加in查询条件
+    if (game_ids && Array.isArray(game_ids) && game_ids.length > 0) {
+      allWhere.game_id = { [Op.in]: game_ids };
+    }
     const keyWordWhere = handleKeyWord({
       keyWord,
       arr: ['game_order', 'result'], // 可根据实际表结构调整

@@ -334,8 +334,6 @@ async function syncUserGameData(
           const toDate = new Date();
           const fromDate = new Date();
           toDate.setHours(toDate.getHours() + 1);
-          fromDate.setHours(toDate.getHours() + 1);
-
           fromDate.setHours(fromDate.getHours() - 7);
 
           // 使用TimezoneUtil.formatTime方法格式化日期为YYYY-MM-DD HH:mm:ss格式

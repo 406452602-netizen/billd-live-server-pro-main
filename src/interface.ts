@@ -958,6 +958,7 @@ export interface IGameTransactionRecord {
 export interface IGameConsumptionRecord {
   game_order?: string;
   game_id?: number;
+  game_ids?: number[];
   consumption_time?: string;
   consumption_amount?: number;
   settlement_amount?: number | null;
