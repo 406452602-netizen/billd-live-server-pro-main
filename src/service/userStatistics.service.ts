@@ -457,8 +457,12 @@ class UserStatisticsService {
         user_id: Number(userId),
         username: quizRow.username,
         quiz: {
-          total_flow: Number(quizRow.quiz_total_flow) || 0,
-          total_profit: Number(quizRow.quiz_total_profit) || 0,
+          total_flow: Number(
+            parseFloat(quizRow.quiz_total_flow || 0).toFixed(2)
+          ),
+          total_profit: Number(
+            parseFloat(quizRow.quiz_total_profit || 0).toFixed(2)
+          ),
         },
         game: {},
       };
@@ -484,10 +488,14 @@ class UserStatisticsService {
       if (gameName && userMap.has(userId)) {
         const userRecord = userMap.get(userId);
 
-        // 更新游戏数据
+        // 更新游戏数据，保留两位小数
         userRecord.game[gameName] = {
-          total_flow: Number(gameRow.game_total_flow) || 0,
-          total_profit: Number(gameRow.game_total_profit) || null,
+          total_flow: Number(
+            parseFloat(gameRow.game_total_flow || 0).toFixed(2)
+          ),
+          total_profit: gameRow.game_total_profit
+            ? Number(parseFloat(gameRow.game_total_profit).toFixed(2))
+            : 0,
         };
 
         // 添加到游戏列表（去重）

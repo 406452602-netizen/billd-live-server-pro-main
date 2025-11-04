@@ -44,7 +44,7 @@ class InviteAgentController {
 
     data.ancestors = user.ancestors;
     data.invite_user_id = user.id!;
-    if (ctx.state.userInfo.id === 1) {
+    if (ctx.state.userInfo.is_admin) {
       data.link_identifier = snowflake.generate();
     } else {
       data.link_identifier = ctx.state.userInfo.link_identifier;
@@ -80,7 +80,7 @@ class InviteAgentController {
     const { body } = ctx.request;
     const result = await inviteAgentService.getList(
       body,
-      ctx.state.userInfo.id
+      ctx.state.userInfo.is_admin ? 1 : ctx.state.userInfo.id
     );
     successHandler({ ctx, data: result });
     await next();
@@ -147,7 +147,7 @@ class InviteAgentController {
         errorCode: COMMON_HTTP_CODE.paramsError,
       });
     }
-    
+
     // 使用统一的用户名校验函数
     const usernameValidation = validateUsername(username);
     if (!usernameValidation.valid) {
@@ -164,7 +164,7 @@ class InviteAgentController {
         errorCode: COMMON_HTTP_CODE.paramsError,
       });
     }
-    
+
     // 再进行需要访问数据库的校验
     const inviteAgent = await inviteAgentService.find(inviteCode);
     if (!inviteAgent) {

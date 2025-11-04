@@ -32,11 +32,11 @@ class GameConsumptionRecordController {
 
     const { query } = ctx.request;
     const data: any = query;
-    data.userId = userInfo.id; // 传入当前代理商用户ID
+    data.userId = userInfo.is_admin ? 1 : userInfo.id; // 传入当前代理商用户ID
 
     const result = await GameConsumptionRecordService.getAgentUserRecords(
       data,
-      userInfo.id!
+      userInfo.is_admin ? 1 : userInfo.id!
     );
     successHandler({ ctx, data: result });
     await next();

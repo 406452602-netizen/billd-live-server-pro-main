@@ -5,12 +5,14 @@ import { Readable } from 'stream';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { v4 as uuidv4 } from 'uuid';
 
+import successHandler from '@/app/handler/success-handle';
+import { recordImageAccess } from '@/config/schedule/cleanupMinioImages';
+import { COMMON_HTTP_CODE } from '@/constant';
+import { CustomError } from '@/model/customError.model';
+
 import { minioClient } from '../config/minio';
 
 import type { Context } from 'koa';
-import successHandler from '@/app/handler/success-handle';
-import { COMMON_HTTP_CODE } from '@/constant';
-import { CustomError } from '@/model/customError.model';
 
 // 允许上传的文件类型
 const ALLOWED_FILE_TYPES: string[] = [
@@ -154,6 +156,11 @@ class MinioController {
       // eslint-disable-next-line @typescript-eslint/no-use-before-define
       ctx.set('Content-Type', getMimeType(objectName));
       ctx.body = buffer;
+
+      // 异步记录图片访问时间，不影响响应
+      recordImageAccess(objectName).catch((error) => {
+        console.error('记录图片访问时间失败:', error);
+      });
     } catch (error: unknown) {
       console.error('从 MinIO 获取图片失败:', error);
       ctx.status = 500;

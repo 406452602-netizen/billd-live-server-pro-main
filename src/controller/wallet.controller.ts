@@ -120,7 +120,7 @@ class WalletController {
       });
     }
     const data: IList<IUserBankCard> = ctx.request.query;
-    if (userInfo.id !== 1) {
+    if (!userInfo.is_admin) {
       data.user_id = userInfo?.id;
     }
     let result;

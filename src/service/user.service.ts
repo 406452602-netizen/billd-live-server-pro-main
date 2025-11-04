@@ -110,7 +110,7 @@ class UserService {
       order: [...orderRes],
       limit,
       offset,
-      where: buildPermissionWhere(allWhere, userId),
+      where: userId ? buildPermissionWhere(allWhere, userId) : allWhere,
       include: [
         {
           model: walletModel,

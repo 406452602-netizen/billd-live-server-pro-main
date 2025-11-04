@@ -504,8 +504,8 @@ class UserController {
     }
     if (parent_user_id) {
       parent_id = parent_user_id;
-    } else {
-      parent_id = userInfo?.id;
+    } else if (userInfo?.id !== 1 && is_admin !== false) {
+      parent_id = 1;
     }
     const result = await this.common.list(
       {
@@ -521,7 +521,7 @@ class UserController {
         rangTimeStart,
         rangTimeEnd,
       },
-      userInfo?.id
+      userInfo?.is_admin ? undefined : userInfo?.id
     );
     successHandler({ ctx, data: result });
 

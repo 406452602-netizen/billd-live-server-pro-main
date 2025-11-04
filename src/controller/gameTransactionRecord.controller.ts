@@ -57,7 +57,7 @@ class GameTransactionRecordController {
         errorCode,
       });
     }
-    if (userInfo.id !== 1) {
+    if (!userInfo.is_admin) {
       data.user_id = userInfo.id;
     }
     const result = await GameTransactionRecordService.getList(data);

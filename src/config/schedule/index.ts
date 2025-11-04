@@ -1,6 +1,7 @@
 import { startCancelExpiredRechargeOrderSchedule } from '@/config/schedule/cancelExpiredOrder/cancelExpiredRechargeOrder';
 import { startExpireInviteCodeSchedule } from '@/config/schedule/expireInviteCode/expireInviteCode';
 import { startLiveRoomIsLiveSchedule } from '@/config/schedule/liveRoomIsLive/';
+import { startCleanupMinioImagesSchedule } from '@/config/schedule/cleanupMinioImages';
 import {
   startSyncGameConsumptionRecordSchedule,
   startProcessGameSettlementSchedule,
@@ -16,4 +17,5 @@ export const initSchedule = () => {
   startProcessGameSettlementSchedule();
   startVBOSSSettlementSchedule();
   startExpireInviteCodeSchedule();
+  startCleanupMinioImagesSchedule();
 };
