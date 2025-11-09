@@ -315,7 +315,7 @@ class GameConsumptionRecordService {
     }
 
     // 构建权限查询条件
-    const permissionWhere = buildPermissionWhere({}, userId);
+    const permissionWhere = buildPermissionWhere(allWhere, userId);
     // 处理排序
     const orderRes = handleOrder({ orderName, orderBy });
 

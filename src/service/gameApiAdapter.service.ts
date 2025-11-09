@@ -1,4 +1,4 @@
-import { REDIS_KEY_PREFIX, GAME_API_PLATFORM_PREFIX } from '@/constant';
+import { GAME_API_PLATFORM_PREFIX, REDIS_KEY_PREFIX } from '@/constant';
 import redisController from '@/controller/redis.controller';
 import { IGameTransactionRecord } from '@/interface';
 import {
@@ -20,6 +20,7 @@ import gameApiThirdService from '@/service/gameApiThird.service';
 import gameTransactionRecordService from '@/service/gameTransactionRecord.service';
 import walletService from '@/service/wallet.service';
 import { IUser } from '@/types/IUser';
+import { RedisLock } from '@/utils/redisLock';
 import { TimezoneUtil } from '@/utils/timezone';
 
 import gameApiService from './gameApi.service';
@@ -70,13 +71,13 @@ class GameApiAdapterService {
    */
   private async getGameTimezone(gameId: number): Promise<string> {
     const cacheKey = `game_timezone_${gameId}`;
-    const cachePrefix = `${REDIS_KEY_PREFIX}game_api___`;
+    const fullKey = `${REDIS_KEY_PREFIX}game_api___${cacheKey}`;
 
     try {
       // 1. 尝试从Redis获取缓存数据
       const cachedTimezone = await redisController.getVal({
-        prefix: cachePrefix,
-        key: cacheKey,
+        prefix: '',
+        key: fullKey,
       });
 
       if (cachedTimezone) {
@@ -91,10 +92,10 @@ class GameApiAdapterService {
 
       // 3. 将获取的时区信息缓存到Redis，设置过期时间为1天（86400秒）
       await redisController.setExVal({
-        prefix: cachePrefix,
+        prefix: `${REDIS_KEY_PREFIX}game_api___`,
         key: cacheKey,
         value: timezone,
-        exp: 86400, // 1天 = 86400秒
+        exp: 86400,
       });
 
       console.log(`[Redis缓存] 游戏时区信息已缓存，gameId: ${gameId}`);
@@ -365,45 +366,102 @@ class GameApiAdapterService {
 
   /**
    * 取款
+   * 在service层使用Redis锁确保原子性
    */
   async withdraw(
     gameId: string | number,
     params: WithdrawParams
   ): Promise<GameApiResponse> {
-    let result;
-    if (params.amount && Number(params.amount) > 0) {
-      // 扣除用户钱包金额
-      await walletService.changeBalanceByUserId({
-        user_id: Number(params.loginId),
-        balance: params.amount,
-      });
-
-      // 添加游戏交易记录
-      const gameTransactionData: IGameTransactionRecord = {
-        user_id: Number(params.loginId),
-        game_id: Number(gameId),
-        amount: params.amount,
-        transaction_type: 2, // 存款类型
-        game_name: 'game_name',
+    // 参数验证在service层作为最后保障
+    if (!params.amount || Number(params.amount) <= 0 || !params.loginId) {
+      return {
+        code: 400,
+        message: '参数无效',
+        data: null,
       };
-      // 获取create方法返回的包含主键的数据
-      const createdRecord = await gameTransactionRecordService.create(
-        gameTransactionData
-      );
-
-      const service = this.getGameApiService(Number(gameId));
-      // 处理loginId，添加平台前缀并零填充
-      const infoParams = {
-        ...params,
-        serial: createdRecord?.id,
-        loginId: params.loginId
-          ? this.processLoginId(params.loginId)
-          : undefined,
-      };
-      result = await service.withdraw(infoParams);
     }
 
-    return result;
+    const userId = Number(params.loginId);
+    // 生成分布式锁键，确保同一用户对同一游戏的提款操作互斥
+    const lockKey = `withdraw_lock_${userId}_${gameId}`;
+
+    try {
+      // 使用Redis分布式锁保证原子性
+      return await RedisLock.withLock(
+        lockKey,
+        async () => {
+          // 1. 再次验证余额（避免并发导致的超提）
+          const profileResult = await this.getProfile(gameId, userId);
+          const gameBalance = profileResult?.data?.balance || 0;
+
+          if (gameBalance < Number(params.amount)) {
+            return {
+              code: 400,
+              message: '游戏余额不足',
+              data: null,
+            };
+          }
+
+          // 2. 添加游戏交易记录
+          const gameTransactionData: IGameTransactionRecord = {
+            user_id: userId,
+            game_id: Number(gameId),
+            amount: params.amount,
+            transaction_type: 2, // 取款类型
+            game_name: 'game_name',
+          };
+
+          const createdRecord = await gameTransactionRecordService.create(
+            gameTransactionData
+          );
+
+          // 3. 更新用户钱包余额（增加余额）
+          const walletUpdated = await walletService.changeBalanceByUserId({
+            user_id: userId,
+            balance: Number(params.amount), // 提款时余额增加
+          });
+
+          if (!walletUpdated) {
+            throw new Error('更新钱包余额失败');
+          }
+
+          // 4. 执行游戏API提款操作
+          const service = this.getGameApiService(Number(gameId));
+          const infoParams = {
+            ...params,
+            serial: createdRecord?.id,
+            loginId: this.processLoginId(params.loginId!),
+          };
+
+          const result = await service.withdraw(infoParams);
+
+          // 5. 验证提款结果
+          if (
+            result.code !== 200 ||
+            (result.data && result.data.status === '0')
+          ) {
+            // 如果游戏平台返回失败，这里需要有补偿机制
+            // 但由于不使用事务，我们需要记录日志并可能需要手动处理
+            console.error(`游戏平台提款失败，但本地已更新，需要补偿:`, result);
+          }
+
+          console.log(`用户${userId}从游戏${gameId}提款处理完成`);
+          return result;
+        },
+        {
+          expire: 30000, // 锁超时时间30秒
+          retryCount: 2,
+          retryDelay: 1000,
+        }
+      );
+    } catch (error) {
+      console.error(`用户${userId}从游戏${gameId}提款异常:`, error);
+      return {
+        code: 500,
+        message: error instanceof Error ? error.message : '提款失败',
+        data: null,
+      };
+    }
   }
 
   /**
@@ -442,26 +500,88 @@ class GameApiAdapterService {
       id?: number;
     }
   ): Promise<string | null> {
-    const service = this.getGameApiService(Number(gameId));
+    try {
+      const userId = userInfo.id!;
 
-    // await this.withdrawAll(userInfo.username!, userInfo?.id);
-    const wallet = await walletService.findByUserId(userInfo.id!);
-    const depositResult = await this.deposit(gameId, {
-      loginId: userInfo.id!,
-      amount: wallet?.balance,
-    });
-    console.log(depositResult);
+      // 构建Redis键名
+      const redisKey = `userCurrentGame___${userId}`;
 
-    // 处理loginId，添加平台前缀并零填充
-    const processedLoginId = this.processLoginId(userInfo.id!);
-    const result = await service.betLobby({
-      loginId: processedLoginId,
-      view,
-      loginPass,
-      id,
-      backUrl,
-    });
-    return result;
+      // 获取上一个游戏ID
+      const previousGameIdStr = await redisController.getVal({
+        prefix: REDIS_KEY_PREFIX,
+        key: redisKey,
+      });
+      const previousGameId = previousGameIdStr
+        ? Number(previousGameIdStr)
+        : null;
+
+      // 如果有上一个游戏ID且与当前游戏ID不同，提取上一个游戏的余额
+      if (previousGameId && previousGameId !== gameId) {
+        try {
+          // 首先获取上一个游戏的余额
+          const profileResult = await this.getProfile(previousGameId, userId);
+          const gameBalance = profileResult?.data?.balance || 0;
+
+          console.log(
+            `Game ${previousGameId} balance for user ${userId}:`,
+            gameBalance
+          );
+
+          // 如果有余额，使用withdraw方法提取确切金额
+          if (gameBalance > 0) {
+            await this.withdraw(previousGameId, {
+              loginId: userId,
+              amount: gameBalance,
+            });
+            // console.log(
+            //   `Successfully withdrew balance ${gameBalance} from game ${previousGameId} for user ${userId}`
+            // );
+          }
+        } catch (error) {
+          console.error(
+            `Failed to withdraw balance from game ${previousGameId} for user ${userId}:`,
+            error
+          );
+          // 提取失败不影响用户进入新游戏
+        }
+      }
+
+      // 获取用户钱包余额
+      const walletInfo = await walletService.findByUserId(userId);
+      const balance = walletInfo?.balance || 0;
+
+      // 充值到游戏
+      if (balance > 0) {
+        await this.deposit(gameId, {
+          loginId: userId,
+          amount: balance,
+        });
+      }
+
+      // 更新Redis记录当前游戏ID
+      await redisController.setExVal({
+        prefix: REDIS_KEY_PREFIX,
+        key: redisKey,
+        value: gameId.toString(),
+        exp: 86400, // 设置1天过期时间
+      });
+
+      const service = this.getGameApiService(Number(gameId));
+
+      // 处理loginId，添加平台前缀并零填充
+      const processedLoginId = this.processLoginId(userId);
+      const result = await service.betLobby({
+        loginId: processedLoginId,
+        view,
+        loginPass,
+        id,
+        backUrl,
+      });
+      return result;
+    } catch (error) {
+      console.error('betLobby error:', error);
+      return null;
+    }
   }
 
   /**
@@ -710,129 +830,192 @@ class GameApiAdapterService {
   /**
    * 一键提款功能
    * 从所有游戏中提取余额
+   * 在service层使用Redis锁确保整个过程的原子性
    */
   async withdrawAll(userId?: number) {
+    // 生成用户级别的分布式锁键，确保同一用户的一键提款操作互斥
+    // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+    const userLockKey = `withdrawAll_lock_${userId}`;
+
     try {
-      // 确保userId存在
-      if (!userId) {
-        throw new Error('用户ID不能为空');
-      }
+      // 使用Redis分布式锁保证整个一键提款过程的原子性
+      return await RedisLock.withLock(
+        userLockKey,
+        async () => {
+          // 1. 基本参数验证
+          if (!userId) {
+            throw new Error('用户ID不能为空');
+          }
 
-      console.log(`用户 (ID: ${userId}) 开始一键提款`);
+          console.log(`用户 (ID: ${userId}) 开始执行一键提款`);
 
-      // 获取所有游戏列表及其配置信息
-      const gamesResult = await this.getGames({}, userId);
-      const withdrawalResults: any = [];
-      let totalWithdrawn = 0;
+          // 2. 获取所有游戏列表及其配置信息
+          const gamesResult = await this.getGames({}, userId);
+          const withdrawalResults: any = [];
+          let totalWithdrawn = 0;
 
-      // 如果有游戏数据，遍历每个游戏进行提款操作
-      if (gamesResult.rows && gamesResult.rows.length > 0) {
-        // 筛选出有余额的游戏
-        const gamesWithBalance = gamesResult.rows.filter(
-          (game: any) => game.config?.balance > 0
-        );
+          // 3. 处理游戏提款
+          if (gamesResult.rows && gamesResult.rows.length > 0) {
+            // 筛选出有余额的游戏
+            const gamesWithBalance = gamesResult.rows.filter(
+              (game: any) => game.config?.balance > 0
+            );
 
-        // 如果没有有余额的游戏，直接返回结果
-        if (gamesWithBalance.length === 0) {
-          // 为所有游戏添加余额为0的记录
-          gamesResult.rows.forEach((game: any) => {
-            withdrawalResults.push({
-              game_id: game.game_id,
-              game_name: game.game_name,
-              amount: 0,
-              success: false,
-              message: '余额为0或无法获取余额',
-            });
-          });
-
-          return {
-            success: false,
-            totalWithdrawn: 0,
-            details: withdrawalResults,
-            message: '所有游戏余额为0',
-          };
-        }
-
-        // 并行处理有余额游戏的提款
-        await Promise.all(
-          gamesWithBalance.map(async (game: any) => {
-            const amount = game.config.balance;
-
-            try {
-              // 执行游戏API提款操作
-              // withdraw方法内部会处理loginId
-              const withdrawResult = await this.withdraw(game.game_id, {
-                loginId: userId,
-                amount,
+            // 如果没有有余额的游戏
+            if (gamesWithBalance.length === 0) {
+              // 为所有游戏添加余额为0的记录
+              gamesResult.rows.forEach((game: any) => {
+                withdrawalResults.push({
+                  game_id: game.game_id,
+                  game_name: game.game_name,
+                  amount: 0,
+                  success: false,
+                  message: '余额为0或无法获取余额',
+                });
               });
 
-              // 验证提款结果
-              if (
-                withdrawResult.code === 200 &&
-                (!withdrawResult.data || withdrawResult.data.status !== '0')
-              ) {
-                // 提款成功，累计总金额
-                totalWithdrawn += amount;
+              return {
+                success: false,
+                totalWithdrawn: 0,
+                details: withdrawalResults,
+                message: '所有游戏余额为0',
+              };
+            }
 
+            // 4. 串行处理每个游戏的提款，确保顺序执行和错误隔离
+            // 虽然性能稍低，但对于金融操作安全性更重要
+            for (let i = 0; i < gamesWithBalance.length; i += 1) {
+              const game: any = gamesWithBalance[i];
+              const amount = game.config.balance;
+
+              try {
+                // 生成游戏级别的分布式锁键（额外保障）
+                // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                const gameLockKey = `withdraw_lock_${userId}_${game.game_id}`;
+
+                // 对单个游戏的提款使用锁保护
+                // eslint-disable-next-line no-await-in-loop
+                const withdrawResult = await RedisLock.withLock(
+                  gameLockKey,
+                  async () => {
+                    // 再次验证游戏余额，防止并发提款导致超提
+                    const updatedProfile = await this.getProfile(
+                      game.game_id,
+                      userId
+                    );
+                    const currentBalance = updatedProfile?.data?.balance || 0;
+
+                    if (currentBalance <= 0 || currentBalance !== amount) {
+                      throw new Error(
+                        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                        `游戏余额已变化，当前余额: ${currentBalance}`
+                      );
+                    }
+
+                    // 调用withdraw方法处理单个游戏的提款
+                    // eslint-disable-next-line no-return-await
+                    return await this.withdraw(game.game_id, {
+                      loginId: userId.toString(),
+                      amount: currentBalance,
+                    });
+                  },
+                  {
+                    expire: 15000,
+                    retryCount: 1,
+                    retryDelay: 500,
+                  }
+                );
+
+                // 验证提款结果
+                if (
+                  withdrawResult.code === 200 &&
+                  (!withdrawResult.data || withdrawResult.data.status !== '0')
+                ) {
+                  // 提款成功，累计总金额
+                  totalWithdrawn += amount;
+
+                  withdrawalResults.push({
+                    game_id: game.game_id,
+                    game_name: game.game_name,
+                    amount,
+                    success: true,
+                    message: '提款成功',
+                  });
+                } else {
+                  throw new Error(withdrawResult.message || '游戏平台返回失败');
+                }
+              } catch (error) {
+                console.error(`游戏${game.game_id as string}提款失败:`, error);
                 withdrawalResults.push({
                   game_id: game.game_id,
                   game_name: game.game_name,
                   amount,
-                  success: true,
-                  message: '提款成功',
+                  success: false,
+                  message: error instanceof Error ? error.message : '提款失败',
                 });
-              } else {
-                throw new Error(withdrawResult.message || '游戏平台返回失败');
+                // 错误处理：单个游戏提款失败不影响其他游戏的提款过程
               }
-            } catch (error) {
-              console.error(`游戏${game.game_id as string}提款失败:`, error);
-              withdrawalResults.push({
-                game_id: game.game_id,
-                game_name: game.game_name,
-                amount: 0,
-                success: false,
-                message: `提款失败: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              });
             }
-          })
-        );
-      }
+          }
 
-      const hasSuccess = withdrawalResults.some((result) => result.success);
-      console.log(
-        `用户 ${userId} 一键提款${
-          hasSuccess ? '成功' : '失败'
-        }，总提款金额: ${totalWithdrawn} 元`
+          // 5. 处理没有游戏数据的情况
+          if (withdrawalResults.length === 0) {
+            return {
+              success: false,
+              totalWithdrawn: 0,
+              details: [],
+              message: '没有找到可提款的游戏',
+            };
+          }
+
+          // 6. 判断是否全部提款成功
+          const allSuccess = withdrawalResults.every(
+            (item: any) => item.success
+          );
+          const successCount = withdrawalResults.filter(
+            (item: any) => item.success
+          ).length;
+
+          return {
+            success: allSuccess,
+            totalWithdrawn,
+            details: withdrawalResults,
+            message: allSuccess
+              ? // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                `全部${withdrawalResults.length}个游戏提款成功`
+              : // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                `部分游戏提款失败，成功${successCount}个，失败${
+                  withdrawalResults.length - successCount
+                }个`,
+          };
+        },
+        {
+          expire: 60000, // 一键提款的锁超时时间设为60秒
+          retryCount: 1,
+          retryDelay: 2000,
+        }
       );
-
-      return {
-        success: hasSuccess,
-        totalWithdrawn,
-        details: withdrawalResults,
-        message: hasSuccess ? '一键提款完成' : '所有游戏提款失败',
-      };
     } catch (error) {
-      console.error('一键提款失败:', error);
-      throw new Error(
-        `一键提款失败: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      return {
+        success: false,
+        totalWithdrawn: 0,
+        details: [],
+        message:
+          error instanceof Error ? error.message : '一键提款过程发生异常',
+      };
     }
   }
 
   async getGameIntegrations(gameId: number) {
     // 定义缓存键名
     const cacheKey = `game_integrations_${gameId}`;
-    const cachePrefix = `${REDIS_KEY_PREFIX}game_api___`;
+    const fullKey = `${REDIS_KEY_PREFIX}game_api___${cacheKey}`;
 
     try {
       // 1. 尝试从Redis获取缓存数据
       const cachedData = await redisController.getVal({
-        prefix: cachePrefix,
-        key: cacheKey,
+        prefix: '',
+        key: fullKey,
       });
 
       // 如果缓存存在，直接返回缓存数据
@@ -847,10 +1030,10 @@ class GameApiAdapterService {
 
       // 3. 将获取的数据缓存到Redis中，设置过期时间为15分钟（900秒）
       await redisController.setExVal({
-        prefix: cachePrefix,
+        prefix: `${REDIS_KEY_PREFIX}game_api___`,
         key: cacheKey,
         value: result,
-        exp: 900, // 15分钟 = 900秒
+        exp: 900,
       });
 
       console.log(`[Redis缓存] 游戏集成信息已缓存，gameId: ${gameId}`);
@@ -861,8 +1044,8 @@ class GameApiAdapterService {
       // 发生错误时，尝试从缓存获取数据作为后备方案
       try {
         const cachedData = await redisController.getVal({
-          prefix: cachePrefix,
-          key: cacheKey,
+          prefix: '',
+          key: fullKey,
         });
         if (cachedData) {
           console.log(

@@ -236,20 +236,26 @@ class WalletController {
       });
     }
     const data: IList<IRechargeRecord> = ctx.request.query;
-    if (!userInfo.is_agent) {
-      data.user_id = userInfo.id;
+    let userId;
+    if (userInfo.is_admin) {
+      userId = 1;
+    } else if (!userInfo.is_agent) {
+      userId = userInfo.id;
     }
     let result;
     if (data) {
-      result = await rechargeRecordService.getList(data);
+      result = await rechargeRecordService.getList(data, userId);
     } else {
-      result = await rechargeRecordService.getList({
-        user_id: userInfo?.id,
-        nowPage: 1,
-        pageSize: 1000,
-        orderBy: 'desc',
-        orderName: 'id',
-      } as IList<IRechargeRecord>);
+      result = await rechargeRecordService.getList(
+        {
+          user_id: userInfo?.id,
+          nowPage: 1,
+          pageSize: 1000,
+          orderBy: 'desc',
+          orderName: 'id',
+        } as IList<IRechargeRecord>,
+        userId
+      );
     }
 
     successHandler({ ctx, data: result });

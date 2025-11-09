@@ -9,7 +9,6 @@ import {
   DepositParams,
   GameApiResponse,
   GameBetListResponse,
-  GameBetResponse,
   GameResponse,
   IGameApi,
   UpdatePlayerStatusParams,
@@ -373,7 +372,12 @@ class GameApiThirdService implements IGameApi {
    * 开奖结果
    */
   // eslint-disable-next-line require-await,@typescript-eslint/require-await
-  async drawResult(fromDate: string, toDate: string): Promise<GameBetListResponse> {
+  async drawResult(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    fromDate: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    toDate: string
+  ): Promise<GameBetListResponse> {
     return {
       code: 200,
       message: 'success',

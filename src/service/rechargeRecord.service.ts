@@ -15,6 +15,7 @@ import {
   handlePaging,
   handleRangTime,
 } from '@/utils';
+import { buildPermissionWhere } from '@/utils/permissionUtils';
 
 RechargeRecordModel.belongsTo(UserBankCardModel, {
   foreignKey: 'bank_card_id', // 关联的外键字段
@@ -76,20 +77,23 @@ class RechargeRecordService {
   }
 
   /** 获取 RechargeRecord 列表 */
-  async getList({
-    id,
-    orderBy,
-    orderName,
-    nowPage,
-    pageSize,
-    keyWord,
-    status,
-    user_id,
-    is_admin_change,
-    rangTimeType,
-    rangTimeStart,
-    rangTimeEnd,
-  }: IList<IRechargeRecord>) {
+  async getList(
+    {
+      id,
+      orderBy,
+      orderName,
+      nowPage,
+      pageSize,
+      keyWord,
+      status,
+      user_id,
+      is_admin_change,
+      rangTimeType,
+      rangTimeStart,
+      rangTimeEnd,
+    }: IList<IRechargeRecord>,
+    userId: number
+  ) {
     const { offset, limit, nowpage, pagesize } = handlePage({
       nowPage,
       pageSize,
@@ -152,9 +156,7 @@ class RechargeRecordService {
       ],
       limit,
       offset,
-      where: {
-        ...allWhere,
-      },
+      where: buildPermissionWhere(allWhere, userId),
       include: [
         {
           model: UserBankCardModel, // 联查 UserBankCardModel

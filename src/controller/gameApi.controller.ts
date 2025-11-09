@@ -111,37 +111,55 @@ class GameApiController {
 
   /**
    * 取款
+   * 前置验证在controller层处理，原子性由service层通过Redis锁确保
    */
   withdraw = async (ctx: ParameterizedContext, next) => {
     const { amount, gameId } = ctx.request.body;
 
-    if (!gameId) {
+    // 1. 权限验证 - 确保用户已登录
+    const { userInfo, code, msg, errorCode } = await authJwt(ctx);
+    if (code !== COMMON_HTTP_CODE.success || !userInfo) {
       throw new CustomError({
-        msg: 'gameId 不能为空',
+        msg: msg || '权限验证失败',
+        httpStatusCode: code,
+        errorCode,
+      });
+    }
+
+    const userId = userInfo?.id;
+
+    // 2. 参数验证 - 非数据库相关的判断
+    if (!gameId || !userId || typeof userId !== 'number' || userId <= 0) {
+      throw new CustomError({
+        msg: '用户ID或游戏ID无效',
         httpStatusCode: COMMON_HTTP_CODE.paramsError,
       });
     }
 
-    if (!amount) {
+    if (!amount || typeof Number(amount) !== 'number' || Number(amount) <= 0) {
       throw new CustomError({
-        msg: '金额 不能为空',
-        httpStatusCode: COMMON_HTTP_CODE.paramsError,
-      });
-    }
-    if (!ctx.state.userInfo?.id) {
-      throw new CustomError({
-        msg: '用户id 不能为空',
+        msg: '提款金额必须大于0',
         httpStatusCode: COMMON_HTTP_CODE.paramsError,
       });
     }
 
-    // 调用服务层的完整取款业务流程
-    const result = await gameApiAdapterService.withdraw(gameId, {
-      amount,
-      loginId: ctx.state.userInfo?.id,
-    });
+    try {
+      // 3. 调用服务层处理实际的提款业务逻辑
+      // 注意：service层负责通过Redis锁确保原子性，这里不涉及事务
+      const result = await gameApiAdapterService.withdraw(gameId, {
+        loginId: userId.toString(),
+        amount: Number(amount),
+      });
+      successHandler({ ctx, data: result });
+    } catch (error) {
+      // 5. 异常处理
+      console.error(`处理提款请求异常:`, error);
+      throw new CustomError({
+        msg: error instanceof Error ? error.message : '提款失败',
+        httpStatusCode: COMMON_HTTP_CODE.serverError,
+      });
+    }
 
-    successHandler({ ctx, data: result });
     await next();
   };
 
@@ -414,8 +432,10 @@ class GameApiController {
 
   /**
    * 一键提款
+   * 前置验证在controller层处理，原子性由service层通过Redis锁确保
    */
   withdrawAll = async (ctx: ParameterizedContext, next) => {
+    // 1. 权限验证 - 确保用户已登录
     const { userInfo, code, msg, errorCode } = await authJwt(ctx);
     if (code !== COMMON_HTTP_CODE.success || !userInfo) {
       throw new CustomError({
@@ -425,10 +445,47 @@ class GameApiController {
       });
     }
 
-    // 直接将完整的用户信息传递给服务层
-    const result = await gameApiAdapterService.withdrawAll(userInfo?.id);
+    // 2. 用户ID验证 - 前置判断不涉及数据库事务操作
+    const userId = userInfo?.id;
+    if (!userId || typeof userId !== 'number' || userId <= 0) {
+      throw new CustomError({
+        msg: '用户ID无效',
+        httpStatusCode: COMMON_HTTP_CODE.paramsError,
+      });
+    }
 
-    successHandler({ ctx, data: result });
+    // 3. 简单日志记录
+    console.log(`收到用户 (ID: ${userId}) 一键提款请求`);
+
+    try {
+      // 4. 调用服务层处理实际的提款业务逻辑
+      // 注意：service层负责通过Redis锁确保原子性，这里不涉及事务
+      const result = await gameApiAdapterService.withdrawAll(userId);
+
+      // 5. 结果处理
+      successHandler({ ctx, data: result });
+
+      // 6. 记录成功日志
+      if (result.success) {
+        console.log(
+          `用户${userId}一键提款成功，总金额: ${
+            result.totalWithdrawn || '未知'
+          }`
+        );
+      } else {
+        console.warn(
+          `用户${userId}一键提款部分或全部失败: ${result.message || '未知原因'}`
+        );
+      }
+    } catch (error) {
+      // 7. 异常处理
+      console.error(`处理一键提款请求异常:`, error);
+      throw new CustomError({
+        msg: error instanceof Error ? error.message : '一键提款失败',
+        httpStatusCode: COMMON_HTTP_CODE.serverError,
+      });
+    }
+
     await next();
   };
 
