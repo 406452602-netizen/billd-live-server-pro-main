@@ -43,12 +43,20 @@ export const GAME_API_CONFIG = {
     secret: 'vae55c6q',
     agent: 'a3taf',
     loginHost: 'sportuat.apple855.com',
+
+    // url: 'https://api.micro7878.com',
+    // secret: 't324beae',
+    // agent: 'a97da',
+    // loginHost: 'sport.micro7878.com',
   },
   // 第三个游戏 API 实现配置
   ThirdGame: {
     url: 'https://vendor-uat.888stars.xyz/v1',
     merchantID: '183796',
     merchantSecretKey: '4061fb181e18490',
+    // url: 'https://vendor-api.888star.xyz/v1',
+    // merchantID: '183802',
+    // merchantSecretKey: '4adc16aa3d7d4ac',
   },
 };
 

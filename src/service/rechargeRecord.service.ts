@@ -1,5 +1,5 @@
 import { deleteUseLessObjectKey } from 'billd-utils';
-import { Op } from 'sequelize';
+import { Op, Sequelize } from 'sequelize';
 
 // 从生成的 types 文件导入接口
 import sequelize from '@/config/mysql';
@@ -15,7 +15,6 @@ import {
   handlePaging,
   handleRangTime,
 } from '@/utils';
-import { buildPermissionWhere } from '@/utils/permissionUtils';
 
 RechargeRecordModel.belongsTo(UserBankCardModel, {
   foreignKey: 'bank_card_id', // 关联的外键字段
@@ -156,7 +155,15 @@ class RechargeRecordService {
       ],
       limit,
       offset,
-      where: buildPermissionWhere(allWhere, userId),
+      where: {
+        ...allWhere,
+        [Op.and]: {
+          [Op.or]: [
+            Sequelize.literal(`FIND_IN_SET(${userId}, user.ancestors)`),
+            Sequelize.literal(`user.id=${userId}`),
+          ],
+        },
+      },
       include: [
         {
           model: UserBankCardModel, // 联查 UserBankCardModel

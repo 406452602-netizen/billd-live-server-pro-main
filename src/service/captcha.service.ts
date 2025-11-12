@@ -81,7 +81,13 @@ class CaptchaService {
    * @param userInput 用户输入的验证码
    * @returns 包含验证结果和原因的对象
    */
-  async verifyCaptcha(captchaKey: string, userInput: string): Promise<{valid: boolean; reason?: 'invalid' | 'expired' | 'empty'}> {
+  async verifyCaptcha(
+    captchaKey: string,
+    userInput: string
+  ): Promise<{
+    valid: boolean;
+    reason?: 'invalid' | 'expired' | 'empty';
+  }> {
     if (!captchaKey || !userInput) {
       return { valid: false, reason: 'empty' };
     }
@@ -99,13 +105,13 @@ class CaptchaService {
 
       // 忽略大小写比较
       const isMatch = storedCode.toLowerCase() === userInput.toLowerCase();
-      
+
       // 无论验证成功失败都删除，防止重复使用
       await this.clearCaptcha(captchaKey);
 
-      return { 
-        valid: isMatch, 
-        reason: isMatch ? undefined : 'invalid' // 验证码不匹配
+      return {
+        valid: isMatch,
+        reason: isMatch ? undefined : 'invalid', // 验证码不匹配
       };
     } catch (error) {
       console.error('验证验证码失败:', error);

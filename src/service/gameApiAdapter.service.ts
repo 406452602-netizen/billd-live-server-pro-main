@@ -146,18 +146,21 @@ class GameApiAdapterService {
 
       // 调整参数中的时间字段
       // 服务器时区(如UTC+8) -> API时区(如UTC)
-      // 当offsetMinutes为-480时，需要将时间减去8小时
+      // 我们需要将时间向前调整8小时，所以使用负的偏移量
+      // 注意：这里将offsetMinutes取负值，以确保时间向前调整而不是向后
+      const adjustedOffsetMinutes = -offsetMinutes;
+      
       if (adjustedParams.fromDate) {
         adjustedParams.fromDate = TimezoneUtil.adjustTime(
           adjustedParams.fromDate,
-          offsetMinutes, // 使用getTimezoneOffset返回的原始值
+          adjustedOffsetMinutes,
           'YYYY-MM-DD HH:mm:ss'
         );
       }
       if (adjustedParams.toDate) {
         adjustedParams.toDate = TimezoneUtil.adjustTime(
           adjustedParams.toDate,
-          offsetMinutes, // 使用getTimezoneOffset返回的原始值
+          adjustedOffsetMinutes,
           'YYYY-MM-DD HH:mm:ss'
         );
       }

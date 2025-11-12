@@ -120,14 +120,8 @@ async function processAgentSettlement(
               parent_divided_into: 0,
               // VBOSS游戏(game_id=1)特殊处理：没有取消订单选项，结算金额必定为空，真实和非真实流水都需要统计
               // 其他游戏按原有逻辑处理
-              amount_flow:
-                gameId === 1 || isFromSyncUserGameData
-                  ? userConsumptionAmount
-                  : undefined,
-              lower_level_flow:
-                gameId === 1 || isFromSyncUserGameData
-                  ? userConsumptionAmount
-                  : undefined,
+              amount_flow: userConsumptionAmount,
+              lower_level_flow: userConsumptionAmount,
               // VBOSS游戏(game_id=1)特殊处理：无论结算金额是否为空，都需要统计真实流水
               // 其他游戏按原有逻辑处理
               amount_actual_flow:

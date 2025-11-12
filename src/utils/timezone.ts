@@ -34,13 +34,95 @@ export class TimezoneUtil {
   }
 
   /**
+   * 服务器时区缓存
+   */
+  private static serverTimezoneCache: string | null = null;
+
+  /**
    * 获取服务器当前的时区
-   * @returns 服务器时区
+   * @returns 服务器时区（IANA时区标识符格式，如"Asia/Shanghai"）
    */
   static getServerTimezone(): string {
-    // 默认返回 UTC+8 时区
-    // 实际项目中可以通过配置或系统环境变量获取
-    return 'Asia/Shanghai';
+    // 检查缓存
+    if (this.serverTimezoneCache) {
+      return this.serverTimezoneCache;
+    }
+
+    try {
+      // 首先尝试从环境变量获取时区
+      if (process.env.TZ) {
+        this.serverTimezoneCache = process.env.TZ;
+        return this.serverTimezoneCache;
+      }
+
+      // 计算当前时区偏移量（分钟）
+      const offsetMinutes = new Date().getTimezoneOffset();
+
+      // 根据偏移量映射到对应的IANA时区标识符
+      const ianaTimezone = this.getIanaTimezoneFromOffset(offsetMinutes);
+
+      // 缓存结果
+      this.serverTimezoneCache = ianaTimezone;
+      return ianaTimezone;
+    } catch (error) {
+      console.error('获取服务器时区失败:', error);
+      // 发生错误时返回默认时区
+      this.serverTimezoneCache = 'Asia/Shanghai';
+      return this.serverTimezoneCache;
+    }
+  }
+
+  /**
+   * 根据时区偏移量获取对应的IANA时区标识符
+   * @param offsetMinutes 时区偏移量（分钟）
+   * @returns IANA时区标识符
+   */
+  private static getIanaTimezoneFromOffset(offsetMinutes: number): string {
+    // 使用Map来确保正确的数字键类型，避免Record<number, string>的类型问题
+    const offsetToTimezone = new Map<number, string>([
+      [480, 'Asia/Shanghai'], // UTC+8
+      [0, 'UTC'], // UTC+0
+      [540, 'Asia/Tokyo'], // UTC+9
+      [-300, 'America/New_York'], // UTC-5
+      [-480, 'America/Los_Angeles'], // UTC-8
+      [60, 'Europe/London'], // UTC+1
+      [660, 'Australia/Sydney'], // UTC+11
+      [-360, 'America/Chicago'], // UTC-6
+      [-420, 'America/Denver'], // UTC-7
+      [180, 'Europe/Berlin'], // UTC+3
+      [240, 'Europe/Moscow'], // UTC+4
+      [420, 'Asia/Dubai'], // UTC+7
+      [360, 'Asia/Bangkok'], // UTC+6
+      [300, 'Asia/Kolkata'], // UTC+5
+      [120, 'Europe/Paris'], // UTC+2
+      [600, 'Pacific/Auckland'], // UTC+10
+      [-540, 'America/Anchorage'], // UTC-9
+      [-600, 'Pacific/Honolulu'], // UTC-10
+    ]);
+
+    // 直接使用原始偏移量值查找，保留正负号的重要性
+    // 如果找到对应的时区，则返回；否则返回UTC
+    if (offsetToTimezone.has(offsetMinutes)) {
+      return offsetToTimezone.get(offsetMinutes)!;
+    }
+
+    // 处理特殊情况：秒为单位的偏移量（如果有）
+    if (Math.abs(offsetMinutes) > 1440) {
+      // 超过一天的分钟数，可能是秒
+      const offsetHours = Math.round(offsetMinutes / 60);
+      if (offsetToTimezone.has(offsetHours)) {
+        return offsetToTimezone.get(offsetHours)!;
+      }
+    }
+
+    // 如果没有精确匹配，尝试查找最接近的主要时区
+    // 例如：对于+8:05等不常见偏移，仍然映射到UTC+8
+    const normalizedOffset = Math.round(offsetMinutes / 60) * 60;
+    if (offsetToTimezone.has(normalizedOffset)) {
+      return offsetToTimezone.get(normalizedOffset)!;
+    }
+
+    return 'UTC';
   }
 
   /**

@@ -122,6 +122,7 @@ class CaptchaController {
         data: {
           captchaKey: result.captchaKey,
           svg: result.svg,
+          captchaCode: result.captchaCode,
         },
       });
     } catch (error) {

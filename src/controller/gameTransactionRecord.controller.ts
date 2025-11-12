@@ -48,7 +48,7 @@ class GameTransactionRecordController {
   };
 
   getList = async (ctx: ParameterizedContext, next) => {
-    const data:any = ctx.request.query;
+    const data: any = ctx.request.query;
     const { userInfo, code, msg, errorCode } = await authJwt(ctx);
     if (code !== COMMON_HTTP_CODE.success || !userInfo) {
       throw new CustomError({
