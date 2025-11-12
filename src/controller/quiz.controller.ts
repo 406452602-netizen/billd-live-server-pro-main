@@ -479,10 +479,16 @@ class QuizLiveStreamsController {
 
   async getQuizPayoutsStatistics(ctx: ParameterizedContext, next) {
     const { body } = ctx.request;
+
+    const { userInfo } = await authJwt(ctx);
     // const result = await quizService.getQuizPayoutsStatistics(
     //   body,
     //   (ctx.state.userInfo.id += '')
-    // );
+    // );userInfo
+
+    if (!body.user_id && !body.parent_user_id) {
+      body.user_id = userInfo?.id;
+    }
     const result =
       await quizPayoutsStatisticsService.getSubordinatesWithStatisticsByPage(
         body

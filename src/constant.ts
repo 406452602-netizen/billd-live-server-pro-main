@@ -99,7 +99,8 @@ export const LOCALHOST_URL = 'localhost'; // 本地地址，一般是localhost�
 export const DOMAIN_URL = 'localhost'; // 本地地址，一般是localhost或者127.0.0.1，但也可以是其他本地地址，如192.168.x.x
 
 // 游戏API平台标识前缀
-export const GAME_API_PLATFORM_PREFIX = 'BLVS'; // Billd Live Video Server的缩写
+// export const GAME_API_PLATFORM_PREFIX = 'BLVS'; // Billd Live Video Server的缩写
+export const GAME_API_PLATFORM_PREFIX = 'T'; // Billd Live Video Server的缩写
 
 export const COMMON_ERROR_CODE = {
   serverError: 10000, // 服务器错误

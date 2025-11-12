@@ -75,6 +75,8 @@ class QuizPayoutsStatisticsService {
       // 3. 获取用户列表和基本信息
       // 确保查询字段安全，防止SQL注入
       const safeQueryField = queryField === 'id' ? 'id' : 'parent_id';
+      const safeQueryStatisticsField =
+        queryField === 'id' ? 'user_id' : 'parent_user_id';
       const userQuery = `
         SELECT u.id,
                u.username,
@@ -150,14 +152,15 @@ class QuizPayoutsStatisticsService {
       const allUserStatsQuery = `
         SELECT user_id,
                amount_result,
-               parent_divided_into
+               parent_divided_into,
+               lower_level_settlement_flow
         FROM quiz_payouts_statistics
-        WHERE user_id IN (:userIds)
+        WHERE \`${safeQueryStatisticsField}\` = :parentId
           ${timeWhere}
       `;
       const allUserStats: any[] =
         (await QuizPayoutsStatisticsModel.sequelize?.query(allUserStatsQuery, {
-          replacements: { userIds, ...timeReplacements },
+          replacements: { parentId },
           type: QueryTypes.SELECT,
           transaction,
         })) || [];
@@ -170,22 +173,34 @@ class QuizPayoutsStatisticsService {
 
       // 8. 批量获取所有用户的下级统计数据 - 修复查询逻辑，应该查询user_id而不是parent_user_id
       // 说明：当查询直接下级用户的统计数据时，应该使用user_id作为查询条件
+      // const allLowerLevelStatsQuery = `
+      //   SELECT user_id                          AS ancestor_id,
+      //          SUM(amount_result)               AS total_lower_level_amount_result,
+      //          SUM(lower_level_flow)            AS total_lower_level_flow,
+      //          SUM(lower_level_actual_flow)     AS total_lower_level_actual_flow,
+      //          SUM(lower_level_settlement_flow) AS total_lower_level_total_win_lose
+      //   FROM quiz_payouts_statistics
+      //   WHERE user_id IN (:userIds)
+      //     ${timeWhere}
+      //   GROUP BY ancestor_id
+      // `;
+
       const allLowerLevelStatsQuery = `
-        SELECT user_id                          AS ancestor_id,
-               SUM(amount_result)               AS total_lower_level_amount_result,
-               SUM(lower_level_flow)            AS total_lower_level_flow,
-               SUM(lower_level_actual_flow)     AS total_lower_level_actual_flow,
-               SUM(lower_level_settlement_flow) AS total_lower_level_total_win_lose
-        FROM quiz_payouts_statistics
-        WHERE user_id IN (:userIds)
+        SELECT now.user_id                      AS ancestor_id,
+               SUM(level.amount_result)         AS total_lower_level_amount_result,
+               sum(now.lower_level_flow)        AS total_lower_level_flow,
+               sum(now.lower_level_actual_flow) AS total_lower_level_actual_flow
+        FROM quiz_payouts_statistics now
+               left join quiz_payouts_statistics level on level.parent_user_id = now.user_id
+        WHERE now.\`${safeQueryStatisticsField}\` = :parentId
           ${timeWhere}
-        GROUP BY ancestor_id
+        group by ancestor_id
       `;
       const allLowerLevelStats: any[] =
         (await QuizPayoutsStatisticsModel.sequelize?.query(
           allLowerLevelStatsQuery,
           {
-            replacements: { userIds, ...timeReplacements },
+            replacements: { parentId, ...timeReplacements },
             type: QueryTypes.SELECT,
             transaction,
           }
@@ -215,7 +230,7 @@ class QuizPayoutsStatisticsService {
           lowerLevelStatsData.total_lower_level_actual_flow || '0'
         );
         const lower_level_total_win_lose = parseFloat(
-          lowerLevelStatsData.total_lower_level_total_win_lose || '0'
+          userStatsData.lower_level_settlement_flow || '0'
         );
         const user_amount_result = parseFloat(
           userStatsData.amount_result || '0'

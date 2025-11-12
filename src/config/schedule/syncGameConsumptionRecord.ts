@@ -41,14 +41,6 @@ async function processAgentSettlement(
   isFromSyncUserGameData = false // 新增参数，区分调用来源
 ): Promise<number | undefined> {
   try {
-    // 平进平出(净收益为0)的情况不计入分账统计和记录
-    if (userNetProfit === 0) {
-      console.log(
-        `用户${userId}游戏${gameId}平进平出，净收益为0，跳过分账处理`
-      );
-      return 0;
-    }
-
     // 获取用户信息，包含代理商链路
     const user = await userService.getAgentUsersInfo(userId);
 
@@ -83,8 +75,9 @@ async function processAgentSettlement(
             ).toFixed(6)
           );
         }
+        const agentData = agent.dataValues ? agent.dataValues : agent;
         return {
-          ...agent,
+          ...agentData,
           actual_account_for: actualRatio,
         };
       }
@@ -94,14 +87,13 @@ async function processAgentSettlement(
     const payoutPromises: Promise<any>[] = [];
 
     // 为每条记录的每个代理商创建分账任务
-    agentUsersWithProperRatio.forEach((userData: any) => {
-      const agent = userData;
-      if (userData.is_agent) {
+    agentUsersWithProperRatio.forEach((agent: any) => {
+      if (agent.is_agent) {
         // 代理商获得的金额 = 用户净亏损 * 代理实际分成占比
         // 注意：用户亏损(userNetProfit为负)时代理商才能盈利，所以需要符号反转
         // 添加精度控制，避免浮点数计算导致的无限小数问题
         const agentPayoutAmount = Number(
-          (-userNetProfit * userData.actual_account_for).toFixed(6)
+          (-userNetProfit * agent.actual_account_for).toFixed(6)
         );
 
         // 创建分账任务并添加到Promise数组，保持原始vote_id以便追踪
@@ -127,6 +119,7 @@ async function processAgentSettlement(
               amount_actual_flow:
                 gameId === 1 ||
                 !isFromSyncUserGameData ||
+                userNetProfit ||
                 (userRecord.settlement_amount !== undefined &&
                   userRecord.settlement_amount !== null)
                   ? userConsumptionAmount
@@ -134,6 +127,7 @@ async function processAgentSettlement(
               lower_level_actual_flow:
                 gameId === 1 ||
                 !isFromSyncUserGameData ||
+                userNetProfit ||
                 (userRecord.settlement_amount !== undefined &&
                   userRecord.settlement_amount !== null)
                   ? userConsumptionAmount
@@ -377,8 +371,6 @@ async function syncUserGameData(
                     // 检查Redis中是否已经存在该记录
                     const recordExists = await redisClient.get(recordKey);
 
-                    let shouldProcessSettlement = false;
-
                     // 如果记录不存在，则保存到数据库并设置Redis标记
                     if (!recordExists) {
                       // 对于有结算金额的记录，直接标记为已处理
@@ -404,16 +396,6 @@ async function syncUserGameData(
                         EX: 3 * 24 * 60 * 60,
                       });
 
-                      // 标记为需要处理分账
-                      shouldProcessSettlement = true;
-                    }
-
-                    // 检查是否需要进行非实际流水统计
-                    if (
-                      shouldProcessSettlement &&
-                      bet.consumption_amount !== undefined &&
-                      bet.consumption_amount !== null
-                    ) {
                       // 计算净收益
                       const settlementAmount = Number(
                         bet.settlement_amount || 0
@@ -425,37 +407,21 @@ async function syncUserGameData(
                       if (settlementAmount || settlementAmount === 0) {
                         netProfit = settlementAmount - consumptionAmount;
                       }
-
-                      // 创建分账任务，与正常结算逻辑保持一致
-                      const settlementKey = `${GAME_SETTLEMENT_PREFIX}processed:${String(
-                        userId
-                      )}:${String(game.game_id)}:${gameOrderStr}`;
-                      const settlementProcessed = await redisClient.get(
-                        settlementKey
-                      );
-
-                      if (!settlementProcessed) {
-                        // 添加分账任务
-                        // syncUserGameData调用，isFromSyncUserGameData设为true
-                        // 必定统计flow字段，根据结算金额是否为空判断是否统计actual_flow字段
-                        processAgentSettlement(
-                          game.game_id,
-                          userId,
-                          bet,
-                          netProfit,
-                          true
-                        ).catch((error) => {
-                          console.error(
-                            `处理用户${userId}代理商分账时发生错误:`,
-                            error
-                          );
-                        });
-
-                        // 设置Redis标记，避免重复分账，设置7天过期
-                        await redisClient.set(settlementKey, '1', {
-                          EX: 7 * 24 * 60 * 60,
-                        });
-                      }
+                      // 添加分账任务
+                      // syncUserGameData调用，isFromSyncUserGameData设为true
+                      // 必定统计flow字段，根据结算金额是否为空判断是否统计actual_flow字段
+                      processAgentSettlement(
+                        game.game_id,
+                        userId,
+                        bet,
+                        netProfit,
+                        true
+                      ).catch((error) => {
+                        console.error(
+                          `处理用户${userId}代理商分账时发生错误:`,
+                          error
+                        );
+                      });
                     }
                   } catch (error: unknown) {
                     console.error('保存游戏记录时发生错误:', error);
